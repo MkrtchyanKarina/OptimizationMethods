@@ -1,4 +1,4 @@
 - [Отчет](https://github.com/MkrtchyanKarina/OptimizationMethods/blob/master/lab1/%D0%9B%D0%A0-1%20%D0%BE%D1%82%D1%87%D0%B5%D1%82.pdf)
-- (Решение в файле)[]
-- (Решение в Excel)[]
-- (Программное решение)[]
+- [Решение в файле](https://github.com/MkrtchyanKarina/OptimizationMethods/blob/master/lab1/%D1%81%D0%B8%D0%BC%D0%BF%D0%BB%D0%B5%D0%BA%D1%81%20%D0%BC%D0%B5%D1%82%D0%BE%D0%B4.pdf)
+- [Решение в Excel](https://github.com/MkrtchyanKarina/OptimizationMethods/blob/master/lab1/%D0%9C%D0%B5%D1%82%D0%9E%D0%BF%D1%82%20%D0%A1%D0%B8%D0%BC%D0%BF%D0%BB%D0%B5%D0%BA%D1%81.xlsx)
+- [Программное решение](https://github.com/MkrtchyanKarina/OptimizationMethods/blob/master/lab1/simplex_method.py)
