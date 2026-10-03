@@ -1,0 +1,4 @@
+- (Отчет)[https://github.com/MkrtchyanKarina/OptimizationMethods/blob/master/lab1/%D0%9B%D0%A0-1%20%D0%BE%D1%82%D1%87%D0%B5%D1%82.pdf]
+- (Решение в файле)[]
+- (Решение в Excel)[]
+- (Программное решение)[]
