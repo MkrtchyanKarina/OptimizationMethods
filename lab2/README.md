@@ -109,51 +109,34 @@ while True:
 
 **Скриншот консольного вывода:**
 
-```
-<img width="436" height="171" alt="image" src="https://github.com/user-attachments/assets/0bef6967-c813-474d-a335-3cfcbc002377" />
-
-```
+![image](https://github.com/user-attachments/assets/0bef6967-c813-474d-a335-3cfcbc002377)
 
 **Скриншот графика:**
 
-```
-<img width="1262" height="778" alt="image" src="https://github.com/user-attachments/assets/da55ecc9-551c-4a14-9707-c45f879e2968" />
+![image](https://github.com/user-attachments/assets/da55ecc9-551c-4a14-9707-c45f879e2968)
 
-```
 
 ### 4.2. Функция Экли - 20 + exp(1) - 20*exp(-0.2*sqrt(x**2)) - exp(cos(2*pi*x))
 
 **Скриншот консольного вывода:**
 
-```
-<img width="442" height="181" alt="image" src="https://github.com/user-attachments/assets/c465fab4-1276-45ee-9085-d216d994cf1d" />
-
-```
+![image](https://github.com/user-attachments/assets/c465fab4-1276-45ee-9085-d216d994cf1d)
 
 **Скриншот графика:**
 
-```
-<img width="1272" height="791" alt="image" src="https://github.com/user-attachments/assets/39545ee3-0e56-4ec3-bff2-2b5ab29bfda4" />
+![image](https://github.com/user-attachments/assets/39545ee3-0e56-4ec3-bff2-2b5ab29bfda4")
 
-```
 ---
 
 ### 4.3. Функция Шуберта - x*sin(x) + x*cos(2*x)
 
 **Скриншот консольного вывода:**
 
-```
-![](https://github.com/user-attachments/assets/3ff5cb6f-9615-493a-97bc-feb76bc52b28)
-
-```
+![image](https://github.com/user-attachments/assets/3ff5cb6f-9615-493a-97bc-feb76bc52b28)
 
 **Скриншот графика:**
 
-```
-![](https://github.com/user-attachments/assets/92b47e6d-e442-4de4-88bd-d5dea4dbb56c)
-
-```
-
+![image](https://github.com/user-attachments/assets/92b47e6d-e442-4de4-88bd-d5dea4dbb56c)
 
 
 ## 5. Выводы по методу
