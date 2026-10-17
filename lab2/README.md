@@ -101,7 +101,7 @@ sqrt(x**2 + 1)
 
 В заголовке указываются выражение функции, найденная точка, значение функции, число итераций и время выполнения.
 
-**[<img width="1491" height="857" alt="image" src="https://github.com/user-attachments/assets/668a19d3-2911-44b6-9d58-8f8ea1fad822" />]**
+<img width="1491" height="857" alt="image" src="https://github.com/user-attachments/assets/668a19d3-2911-44b6-9d58-8f8ea1fad822" />
 
 ### 3.5. Формирование отчёта
 
