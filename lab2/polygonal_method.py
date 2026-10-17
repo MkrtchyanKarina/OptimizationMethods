@@ -1,16 +1,71 @@
 
+import ast
 import math
 import time
+from functools import lru_cache
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 
+MATH_FUNCTIONS = {"sin": math.sin, "cos": math.cos, "tan": math.tan, "exp": math.exp, "sqrt": math.sqrt, "log": math.log, "abs": abs}
+ALLOWED_NAMES = {"x", "pi"} | set(MATH_FUNCTIONS)
+ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Call, ast.Name, ast.Load, ast.Constant, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow, ast.UAdd, ast.USub)
+
+
+# Проверяет выражение и компилирует его для вычислений
+@lru_cache(maxsize=128)
+def validate_expression(expression):
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as error:
+        raise ValueError(f"Синтаксическая ошибка в выражении: {error.msg}") from error
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ALLOWED_NODES):
+            raise ValueError(f"Недопустимая конструкция в выражении: {type(node).__name__}")
+
+        if isinstance(node, ast.Name) and node.id not in ALLOWED_NAMES:
+            raise ValueError(f"Неизвестное имя: {node.id}")
+
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in MATH_FUNCTIONS:
+                raise ValueError("Разрешены только перечисленные математические функции.")
+            if len(node.args) != 1 or node.keywords:
+                raise ValueError(f"Функция {node.func.id} должна принимать один аргумент.")
+
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValueError("Разрешены только числовые константы.")
+
+            if isinstance(node.value, int) and node.value.bit_length() > 1024:
+                raise ValueError("Числовая константа слишком велика.")
+
+    # Преобразуем числовые литералы в float, чтобы избежать огромных целочисленных вычислений
+    class FloatConstants(ast.NodeTransformer):
+        def visit_Constant(self, node):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                try:
+                    value = float(node.value)
+                except OverflowError as error:
+                    raise ValueError("Числовая константа слишком велика.") from error
+                if not math.isfinite(value):
+                    raise ValueError("Числовая константа должна быть конечной.")
+                return ast.copy_location(ast.Constant(value=value), node)
+            return node
+
+    tree = FloatConstants().visit(tree)
+    return compile(ast.fix_missing_locations(tree), "<expression>", "eval")
+
+
 # Вычисляет значение функции по строковому выражению
 def f(x, expression):
-    allowed_functions = {"__builtins__": {}, "sin": math.sin, "cos": math.cos, "tan": math.tan, "exp": math.exp, "sqrt": math.sqrt, "log": math.log, "pi": math.pi, "abs": abs}
+    compiled = validate_expression(expression)
+    namespace = {"x": float(x), "pi": math.pi, **MATH_FUNCTIONS}
+
     try:
-        result = float(eval(expression, allowed_functions, {"x": float(x)}))
-    except (ValueError, OverflowError, ZeroDivisionError, TypeError) as error:
+        result = float(eval(compiled, {"__builtins__": {}}, namespace))
+    except (NameError, ValueError, OverflowError, ZeroDivisionError, TypeError) as error:
         raise ValueError(f"Не удалось вычислить функцию в точке x={x}: {error}") from error
 
     if not math.isfinite(result):
@@ -41,7 +96,7 @@ def estimate_lipschitz(evaluate, a, b):
     if relative_change > 0.05:
         warnings.append("Оценка максимального наклона заметно изменилась при измельчении сетки.")
 
-    # Запас 10% не гарантирует, что найдена истинная константа Липшица
+    # Запас 10% не гарантирует нахождение истинной константы Липшица
     L = 1.1 * max(max_coarse, max_fine, 1e-10)
     return L, warnings, max_coarse, max_fine
 
@@ -97,6 +152,8 @@ def find_minorant_minimum(x_points, y_points, L, a, b):
 
 # Метод Пиявского для поиска глобального минимума
 def piyavskiy_method(expression, a, b, eps, max_iter=10000):
+    validate_expression(expression)
+
     if not all(math.isfinite(value) for value in (a, b, eps)):
         raise ValueError("Границы и точность должны быть конечными числами.")
     if a >= b:
@@ -210,11 +267,13 @@ print(f"Максимальный наклон на грубой сетке: {coa
 print(f"Максимальный наклон на мелкой сетке: {fine_slope:.8f}")
 
 if status == "converged":
-    print("\nКритерий остановки выполнен. Строгая гарантия точности зависит от корректности L.")
+    print("\nКритерий остановки выполнен.")
 elif status == "max_iter":
     print("\nДостигнут лимит итераций. Требуемая точность не подтверждена.")
 elif status == "stalled":
     print("\nАлгоритм остановлен из-за повторного выбора точки. Требуемая точность не подтверждена.")
+
+print("Гарантия глобальной точности зависит от достаточности оценки L:\n\tчисленная оценка и проверки сетки не доказывают, что L является верхней границей истинной константы Липшица.")
 
 if warnings:
     print("\nПредупреждения:")
