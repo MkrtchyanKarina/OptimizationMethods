@@ -140,6 +140,31 @@ def gen_trades(a1, a2, a3, cash):
 
                 yield d1, d2, d3, a1n, a2n, a3n, cashn
 
+def validate_input(init=INIT, scenarios=SCEN):
+    """Проверка некорректных исходных данных до запуска расчёта."""
+    if len(init) != 4 or any(not isinstance(x, int) or x < 0 for x in init):
+        raise ValueError("Начальное состояние должно содержать 4 неотрицательных целых значения в копейках")
+    if len(scenarios) != 3:
+        raise ValueError("Должно быть ровно три этапа")
+    for stage in scenarios:
+        if len(stage) != 3:
+            raise ValueError("На каждом этапе должны быть ровно три сценария")
+        if any(len(row) != 4 for row in stage):
+            raise ValueError("Каждый сценарий должен содержать вероятность и три коэффициента")
+        if any(row[0] < 0 or any(k <= 0 for k in row[1:]) for row in stage):
+            raise ValueError("Некорректные вероятности или коэффициенты")
+        if abs(sum(row[0] for row in stage) - 1.0) > 1e-9:
+            raise ValueError("Сумма вероятностей сценариев каждого этапа должна быть равна 1")
+
+
+def check_v3_assumption():
+    # Для каждого актива ожидаемая стоимость пакета должна быть строго между
+    # чистой выручкой от продажи и полной стоимостью покупки.
+    for i in range(3):
+        expected_package = Q[i] * PKG[i]
+        if not (SELL_GAIN[i] < expected_package < BUY_COST[i]):
+            raise RuntimeError("Условия V3_fast не выполнены: используйте полный перебор этапа 3")
+
 def V3_fast(a1, a2, a3, cash):
     """
     Аналитическое решение для 3-го этапа.
@@ -149,6 +174,7 @@ def V3_fast(a1, a2, a3, cash):
       2) чтобы профинансировать такие покупки продажей других активов.
     Возвращает (ожидаемая_стоимость, trade).
     """
+    check_v3_assumption()
     orig = [a1, a2, a3]
     a = [a1, a2, a3]
     req = [0, 0, 0]
@@ -407,7 +433,75 @@ def show_best_branch_by_contribution():
 
 
 
+def print_full_strategy():
+    """Печать всех 13 узлов оптимальной условной стратегии."""
+    labels = ("Б", "Н", "П")
+    root_value, root_trade = solve()
+    print("\nОПТИМАЛЬНАЯ СТРАТЕГИЯ: 13 УЗЛОВ")
+    print("Этап | История сценариев | Состояние до сделки (д.е.) | Управление")
+    print(f"1 | начало | {tuple(round(x/100,2) for x in INIT)} | {root_trade}")
+    for i, sc1 in enumerate(SCEN[0]):
+        state2 = tuple(apply_coef(INIT[j] + root_trade[j]*PKG[j], sc1[j+1]) for j in range(3)) + (delta_cash(root_trade, INIT[3]),)
+        trade2 = V2(*state2)[1]
+        print(f"2 | после {labels[i]} | {tuple(round(x/100,2) for x in state2)} | {trade2}")
+        for j, sc2 in enumerate(SCEN[1]):
+            state3 = tuple(apply_coef(state2[k] + trade2[k]*PKG[k], sc2[k+1]) for k in range(3)) + (delta_cash(trade2, state2[3]),)
+            value3, trade3 = V3_fast(*state3)
+            print(f"3 | после {labels[i]}{labels[j]} | {tuple(round(x/100,2) for x in state3)} | {trade3}; V3={value3/100:.5f}")
+
+
+def run_tests():
+    import unittest
+    class Tests(unittest.TestCase):
+        def test_zero_portfolio(self):
+            self.assertEqual(V3_fast(0,0,0,0), (float("-inf"), None))
+        def test_zero_market_return(self):
+            old_q = Q[:]
+            Q[:] = [1.0, 1.0, 1.0]
+            val, trade = V3_fast(3000,15000,10000,5000)
+            self.assertEqual(trade, (0,0,0))
+            self.assertAlmostEqual(val, 33000.0)
+            Q[:] = old_q
+        def test_multiple_optima(self):
+            # Контрольный малый случай с Q=(1.04,1,1): пакет ЦБ1 даёт 26 д.е.
+            # ожидаемой стоимости и стоит 26 д.е.; несколько чисел покупаемых пакетов равнозначны.
+            q = (1.04, 1.0, 1.0)
+            candidates = []
+            for d1,d2,d3,b1,b2,b3,c in gen_trades(10000,80000,40000,10000):
+                candidates.append((q[0]*b1 + q[1]*b2 + q[2]*b3 + c, (d1,d2,d3)))
+            optimum = max(v for v,_ in candidates)
+            ties = [u for v,u in candidates if abs(v-optimum)<1e-9]
+            self.assertIn((0,0,0), ties)
+            self.assertIn((1,0,0), ties)
+            self.assertGreaterEqual(len(ties), 2)
+        def test_all_budget_one_asset(self):
+            # Проверяется фактическое решение всей задачи, а не только арифметика покупки.
+            _, trade = solve()
+            self.assertEqual(trade, (23,0,0))
+            self.assertEqual(delta_cash(trade, INIT[3]), 200)
+        def test_invalid_data(self):
+            with self.assertRaises(ValueError): validate_input(init=(-1,0,0,0))
+            with self.assertRaises(ValueError): validate_input(scenarios=[[(.2,100,100,100)]*3]*2)
+            with self.assertRaises(ValueError): validate_input(scenarios=[[(.2,100,100)]*3, SCEN[1], SCEN[2]])
+        def test_full_enumeration_small_stage3(self):
+            # Независимый полный перебор для малого состояния; сравниваем с аналитическим V3_fast.
+            state = (2500,15000,10000,10000)
+            fast, _ = V3_fast(*state)
+            best = float("-inf")
+            for d1,d2,d3,b1,b2,b3,c in gen_trades(*state):
+                exp = 0.0
+                for p,k1,k2,k3 in SCEN[2]:
+                    exp += p*(apply_coef(b1,k1)+apply_coef(b2,k2)+apply_coef(b3,k3)+c)
+                best = max(best, exp)
+            self.assertAlmostEqual(fast, best, delta=0.03)
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(Tests))
+    return result.wasSuccessful()
+
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        raise SystemExit(0 if run_tests() else 1)
+
     t0 = time.perf_counter()
     best_val, best_trade = solve()
     elapsed = time.perf_counter() - t0
@@ -421,3 +515,7 @@ if __name__ == "__main__":
 
 
     show_best_branch_by_contribution()
+    print_full_strategy()
+
+    print("\nРезультаты тестов:")
+    run_tests()
