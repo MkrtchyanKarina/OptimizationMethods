@@ -433,6 +433,28 @@ def show_best_branch_by_contribution():
 
 
 
+def print_all_branches():
+    """Печатает все 27 полных сценарных ветвей оптимальной стратегии."""
+    labels = ("Б", "Н", "П")
+    branches = []
+    all_branches(*INIT, 0, [], branches)
+    print("\nДЕРЕВО ИСХОДОВ: ВСЕ 27 ПОЛНЫХ ВЕТВЕЙ")
+    print("№ | История | Управления по этапам | Состояния после этапов | P(ветви) | Wтерм | Вклад")
+    for number, branch in enumerate(branches, 1):
+        history, actions, states = [], [], []
+        for step in branch:
+            stage = step["stage"]
+            history.append(labels[SCEN[stage].index(step["scen"])])
+            actions.append(str(step["trade"]))
+            states.append("(" + ";".join(f"{x/100:.2f}" for x in step["state_after"]) + ")")
+        probability = branch_probability(branch)
+        terminal = branch_terminal(branch)
+        contribution = branch_contribution(branch)
+        print(f"{number:02d} | {''.join(history)} | U1={actions[0]}, U2={actions[1]}, U3={actions[2]} | "
+              f"X1={states[0]}, X2={states[1]}, X3={states[2]} | "
+              f"{probability:.4f} | {terminal/100:.2f} | {contribution/100:.4f}")
+
+
 def print_full_strategy():
     """Печать всех 13 узлов оптимальной условной стратегии."""
     labels = ("Б", "Н", "П")
@@ -483,6 +505,103 @@ def run_tests():
             with self.assertRaises(ValueError): validate_input(init=(-1,0,0,0))
             with self.assertRaises(ValueError): validate_input(scenarios=[[(.2,100,100,100)]*3]*2)
             with self.assertRaises(ValueError): validate_input(scenarios=[[(.2,100,100)]*3, SCEN[1], SCEN[2]])
+        def test_independent_full_three_stage_enumeration(self):
+            """Полный трёхэтапный контрольный пример со своим генератором сделок."""
+            import itertools
+            import math
+            from functools import lru_cache
+
+            minimum = (1.0, 1.0, 1.0)
+            package = (1.0, 1.0, 1.0)
+            buy_cost = (1.1, 1.1, 1.1)
+            sell_gain = (0.9, 0.9, 0.9)
+            initial = (2.0, 2.0, 1.0, 1.5)
+            scenarios = [
+                [(0.5, 90, 100, 100), (0.5, 100, 100, 100)],
+                [(0.5, 150, 100, 100), (0.5, 100, 100, 100)],
+                [(0.5, 130, 100, 100), (0.5, 100, 100, 100)],
+            ]
+
+            # Независимая генерация: перебираются целые векторы сделок,
+            # затем напрямую проверяются минимумы активов и остаток денег.
+            def independent_deals(state):
+                assets, cash = state[:3], state[3]
+                max_sales = [int(math.floor((assets[i] - minimum[i]) / package[i] + 1e-9))
+                             for i in range(3)]
+                possible_cash = cash + sum(max_sales[i] * sell_gain[i] for i in range(3))
+                max_buys = int(math.floor(possible_cash / min(buy_cost) + 1e-9))
+                ranges = [range(-max_sales[i], max_buys + 1) for i in range(3)]
+                for deals in itertools.product(*ranges):
+                    new_assets = tuple(assets[i] + deals[i] * package[i] for i in range(3))
+                    new_cash = cash
+                    for i, count in enumerate(deals):
+                        if count > 0:
+                            new_cash -= count * buy_cost[i]
+                        elif count < 0:
+                            new_cash += (-count) * sell_gain[i]
+                    if new_cash >= -1e-9 and all(new_assets[i] >= minimum[i] - 1e-9
+                                                 for i in range(3)):
+                        yield deals, new_assets, max(0.0, new_cash)
+
+            def market(assets, coeffs):
+                return tuple(round(assets[i] * coeffs[i] / 100.0, 2) for i in range(3))
+
+            @lru_cache(maxsize=None)
+            def memo_recursion(stage, state):
+                if stage == 3:
+                    return sum(state), None
+                best_value, best_deal = float("-inf"), None
+                for deals, assets, cash in independent_deals(state):
+                    expected = 0.0
+                    for probability, k1, k2, k3 in scenarios[stage]:
+                        next_state = market(assets, (k1, k2, k3)) + (cash,)
+                        expected += probability * memo_recursion(stage + 1, next_state)[0]
+                    if expected > best_value + 1e-10:
+                        best_value, best_deal = expected, deals
+                return best_value, best_deal
+
+            # Контрольный полный перебор без мемоизации.
+            def exhaustive_recursion(stage, state):
+                if stage == 3:
+                    return sum(state), None
+                best_value, best_deal = float("-inf"), None
+                for deals, assets, cash in independent_deals(state):
+                    expected = 0.0
+                    for probability, k1, k2, k3 in scenarios[stage]:
+                        next_state = market(assets, (k1, k2, k3)) + (cash,)
+                        expected += probability * exhaustive_recursion(stage + 1, next_state)[0]
+                    if expected > best_value + 1e-10:
+                        best_value, best_deal = expected, deals
+                return best_value, best_deal
+
+            recursive_value, recursive_deal = memo_recursion(0, initial)
+            brute_value, brute_deal = exhaustive_recursion(0, initial)
+            self.assertAlmostEqual(recursive_value, brute_value, places=9)
+            self.assertEqual(recursive_deal, brute_deal)
+            self.assertAlmostEqual(recursive_value, 7.80625, places=8)
+            self.assertEqual(recursive_deal, (0, -1, 0))
+
+            # Дополнительно сравниваем значения и управления в каждом достижимом узле.
+            def apply_deal(state, deal):
+                assets = tuple(state[i] + deal[i] * package[i] for i in range(3))
+                cash = state[3]
+                for i, count in enumerate(deal):
+                    if count > 0:
+                        cash -= count * buy_cost[i]
+                    elif count < 0:
+                        cash += (-count) * sell_gain[i]
+                return assets + (max(0.0, cash),)
+
+            first_state = apply_deal(initial, recursive_deal)
+            for _, k1, k2, k3 in scenarios[0]:
+                state2 = market(first_state[:3], (k1, k2, k3)) + (first_state[3],)
+                self.assertEqual(memo_recursion(1, state2), exhaustive_recursion(1, state2))
+                deal2 = memo_recursion(1, state2)[1]
+                second_state = apply_deal(state2, deal2)
+                for _, j1, j2, j3 in scenarios[1]:
+                    state3 = market(second_state[:3], (j1, j2, j3)) + (second_state[3],)
+                    self.assertEqual(memo_recursion(2, state3), exhaustive_recursion(2, state3))
+
         def test_full_enumeration_small_stage3(self):
             # Независимый полный перебор для малого состояния; сравниваем с аналитическим V3_fast.
             state = (2500,15000,10000,10000)
@@ -502,6 +621,18 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
         raise SystemExit(0 if run_tests() else 1)
 
+    # Проверка исходных данных выполняется и при обычном запуске.
+    validate_input()
+    check_v3_assumption()
+
+    # resource доступен в Unix-подобных системах; Windows использует tracemalloc.
+    try:
+        import resource
+    except ImportError:
+        resource = None
+        import tracemalloc
+        tracemalloc.start()
+
     t0 = time.perf_counter()
     best_val, best_trade = solve()
     elapsed = time.perf_counter() - t0
@@ -513,9 +644,16 @@ if __name__ == "__main__":
     print(f"Количество вычисленных состояний V2: {V2.cache_info().currsize}")
     print(f"Время работы: {elapsed:.4f} с")
 
-
     show_best_branch_by_contribution()
     print_full_strategy()
-
-    print("\nРезультаты тестов:")
-    run_tests()
+    print_all_branches()
+    if resource is not None:
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        import platform
+        # Linux сообщает ru_maxrss в КиБ, macOS — в байтах.
+        peak_mib = peak / (1024 * 1024) if platform.system() == "Darwin" else peak / 1024
+        print(f"Пиковая память процесса (resource.ru_maxrss): {peak_mib:.2f} МиБ")
+    else:
+        _, peak = tracemalloc.get_traced_memory()
+        print(f"Пиковая память Python (tracemalloc): {peak / (1024 * 1024):.2f} МиБ")
+        tracemalloc.stop()
