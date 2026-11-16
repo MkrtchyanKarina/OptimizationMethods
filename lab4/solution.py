@@ -76,68 +76,56 @@ def gen_trades(a1, a2, a3, cash):
     d_i = 0 — без сделки.
     """
     amounts = (a1, a2, a3)
-    max_sell = [0, 0, 0]
-    proceeds = [0, 0, 0]
-
-    for i in range(3):
-        if amounts[i] >= MIN[i]:
-            max_sell[i] = (amounts[i] - MIN[i]) // PKG[i]
-        else:
-            max_sell[i] = 0
-        proceeds[i] = max_sell[i] * SELL_GAIN[i]
+    max_sell = tuple(
+        max(0, (amounts[i] - MIN[i]) // PKG[i])
+        for i in range(3)
+    )
+    proceeds = tuple(max_sell[i] * SELL_GAIN[i] for i in range(3))
 
     ranges = []
     for i in range(3):
         if amounts[i] >= MIN[i]:
             dmin = -max_sell[i]
         else:
-            # нужно докупить до минимума
             dmin = (MIN[i] - amounts[i] + PKG[i] - 1) // PKG[i]
 
-        # верхняя граница покупки с учётом продаж других активов
-        other_proceeds = sum(proceeds[j] for j in range(3) if j != i)
-        max_cash_for_buy = cash + other_proceeds
+        max_cash_for_buy = cash + proceeds[(i + 1) % 3] + proceeds[(i + 2) % 3]
         dmax = max_cash_for_buy // BUY_COST[i]
-
         if dmax < dmin:
-            return  # допустимых сделок нет
+            return
         ranges.append((dmin, dmax))
+
+    # Денежные изменения заранее вычисляются один раз на каждое значение сделки.
+    cash_changes = []
+    for i in range(3):
+        lo, hi = ranges[i]
+        changes = {}
+        for d in range(lo, hi + 1):
+            changes[d] = (-d * BUY_COST[i] if d > 0
+                          else (-d) * SELL_GAIN[i] if d < 0 else 0)
+        cash_changes.append(changes)
+
+    d3_min, d3_max = ranges[2]
+    # Максимальный денежный приток от третьего актива достигается при максимальной продаже.
+    best_cash3 = cash_changes[2][d3_min]
 
     for d1 in range(ranges[0][0], ranges[0][1] + 1):
         a1n = a1 + d1 * PKG[0]
-        if d1 > 0:
-            cash1 = -d1 * BUY_COST[0]
-        elif d1 < 0:
-            cash1 = (-d1) * SELL_GAIN[0]
-        else:
-            cash1 = 0
-        c1 = cash + cash1
+        c1 = cash + cash_changes[0][d1]
+        if c1 + cash_changes[1][ranges[1][0]] + best_cash3 < 0:
+            continue
 
         for d2 in range(ranges[1][0], ranges[1][1] + 1):
             a2n = a2 + d2 * PKG[1]
-            if d2 > 0:
-                cash2 = -d2 * BUY_COST[1]
-            elif d2 < 0:
-                cash2 = (-d2) * SELL_GAIN[1]
-            else:
-                cash2 = 0
-            c12 = c1 + cash2
+            c12 = c1 + cash_changes[1][d2]
+            if c12 + best_cash3 < 0:
+                continue
 
-            for d3 in range(ranges[2][0], ranges[2][1] + 1):
-                a3n = a3 + d3 * PKG[2]
-                if d3 > 0:
-                    cash3 = -d3 * BUY_COST[2]
-                elif d3 < 0:
-                    cash3 = (-d3) * SELL_GAIN[2]
-                else:
-                    cash3 = 0
-
-                cashn = c12 + cash3
+            for d3 in range(d3_min, d3_max + 1):
+                cashn = c12 + cash_changes[2][d3]
                 if cashn < 0:
                     continue
-                if a1n < MIN[0] or a2n < MIN[1] or a3n < MIN[2]:
-                    continue
-
+                a3n = a3 + d3 * PKG[2]
                 yield d1, d2, d3, a1n, a2n, a3n, cashn
 
 def validate_input(init=INIT, scenarios=SCEN):
@@ -157,13 +145,18 @@ def validate_input(init=INIT, scenarios=SCEN):
             raise ValueError("Сумма вероятностей сценариев каждого этапа должна быть равна 1")
 
 
-def check_v3_assumption():
-    # Для каждого актива ожидаемая стоимость пакета должна быть строго между
-    # чистой выручкой от продажи и полной стоимостью покупки.
+@lru_cache(maxsize=8)
+def _check_v3_assumption_cached(q):
+    # Кэш зависит от значений Q, поэтому корректно учитывает их изменение в тестах.
     for i in range(3):
-        expected_package = Q[i] * PKG[i]
+        expected_package = q[i] * PKG[i]
         if not (SELL_GAIN[i] < expected_package < BUY_COST[i]):
             raise RuntimeError("Условия V3_fast не выполнены: используйте полный перебор этапа 3")
+
+
+def check_v3_assumption():
+    # Q в тестах временно изменяется, поэтому ключом служит неизменяемый снимок.
+    _check_v3_assumption_cached(tuple(Q))
 
 def V3_fast(a1, a2, a3, cash):
     """
